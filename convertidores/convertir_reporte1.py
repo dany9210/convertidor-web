@@ -1,100 +1,79 @@
 import pandas as pd
 import re
 
-def convertir_reporte1(ruta_txt, ruta_salida_excel):
-    def normalizar(cadena):
-        cadena = cadena.replace(",", "").replace('"', "").strip()
-        if cadena.endswith("-"):
-            return -float(cadena[:-1])
-        return float(cadena)
-
-    with open(ruta_txt, "r", encoding="latin-1") as archivo:
+def convertir_reporte1(archivo_txt, archivo_salida):
+    with open(archivo_txt, "r", encoding="latin-1") as archivo:
         lineas = archivo.readlines()
 
     datos = []
-    ultimo_num_parte = None
 
-    regex = re.compile(
-        r'(-?\d[\d,]*\.\d{4}-?)\s*\|'
-        r'\s*(-?\d[\d,]*\.\d{4}-?)\s*\|'
-        r'\s*(-?\d[\d,]*\.\d{4}-?)\s*\|'
-        r'\s*(-?\d[\d,]*\.\d{4}-?)\s*\|'
-        r'\s*(-?\d[\d,]*\.\d{2}-?)\s*\|'
-        r'\s*(-?\d[\d,]*\.\d{2}-?)'
-    )
+    # Recorrer las líneas de dos en dos
+    i = 0
+    while i < len(lineas) - 1:
+        linea_parte = lineas[i].strip()
+        linea_valores = lineas[i + 1].strip()
 
-    for linea in lineas:
-        linea = linea.strip()
-        if not linea:
-            continue
-
-        match = regex.search(linea)
-        if not match:
-            continue
-
-        try:
-            inv_unit = normalizar(match.group(1))
-            material = normalizar(match.group(2))
-            labor = normalizar(match.group(3))
-            overhead = normalizar(match.group(4))
-            total = normalizar(match.group(5))
-            sales = normalizar(match.group(6))
-
-            parte_izquierda = linea[:match.start()].strip()
-
-            if parte_izquierda.startswith('"'):
-                tokens = parte_izquierda.replace('"', "").strip().split(maxsplit=1)
-                if len(tokens) == 2 and re.match(r'^[\w\-]+$', tokens[0]):
-                    numero_parte = tokens[0]
-                    descripcion = tokens[1]
-                    ultimo_num_parte = numero_parte
+        # Solo si contiene "Part Number:"
+        if "Part Number:" in linea_parte:
+            try:
+                # Extraer número de parte y descripción
+                match = re.search(r'Part Number:\s+([\w\-]+)\s+(.*)', linea_parte)
+                if match:
+                    num_parte = match.group(1).strip()
+                    descripcion = match.group(2).strip()
                 else:
-                    numero_parte = ultimo_num_parte
-                    descripcion = parte_izquierda
-            else:
-                tokens = parte_izquierda.split(maxsplit=1)
-                if len(tokens) != 2:
+                    i += 2
                     continue
-                numero_parte = tokens[0].strip()
-                descripcion = tokens[1].strip()
-                ultimo_num_parte = numero_parte
 
-            datos.append([
-                numero_parte,
-                descripcion,
-                inv_unit,
-                material,
-                labor,
-                overhead,
-                total,
-                sales
-            ])
-        except:
-            continue
+                # Extraer los valores de la segunda línea
+                valores = re.findall(r'[\d,]+\.\d+|\d+', linea_valores)
+                if len(valores) == 5:
+                    labor = float(valores[0].replace(",", ""))
+                    material = float(valores[1].replace(",", ""))
+                    burden = float(valores[2].replace(",", ""))
+                    qty = int(valores[3].replace(",", ""))
+                    total = float(valores[4].replace(",", ""))
+                else:
+                    i += 2
+                    continue
 
+                datos.append([
+                    num_parte,
+                    descripcion,
+                    labor,
+                    material,
+                    burden,
+                    qty,
+                    total
+                ])
+            except:
+                pass
+
+        i += 2  # saltamos a las siguientes 2 líneas
+
+    # Crear DataFrame
     columnas = [
         "Número de Parte",
         "Descripción",
-        "Cantidad (Inventory Unit)",
-        "Material Value",
-        "Labor Value",
-        "Overhead Value",
-        "Total Value",
-        "Sales Value"
+        "Labor",
+        "Material",
+        "Labor Burden",
+        "Qty. Rejected",
+        "Total Cost"
     ]
 
     df = pd.DataFrame(datos, columns=columnas)
 
+    # Agregar fila de totales
     totales = [
         "", "TOTAL GENERAL",
-        df["Cantidad (Inventory Unit)"].sum(),
-        df["Material Value"].sum(),
-        df["Labor Value"].sum(),
-        df["Overhead Value"].sum(),
-        df["Total Value"].sum(),
-        df["Sales Value"].sum()
+        df["Labor"].sum(),
+        df["Material"].sum(),
+        df["Labor Burden"].sum(),
+        df["Qty. Rejected"].sum(),
+        df["Total Cost"].sum()
     ]
-
     df.loc[len(df)] = totales
 
-    df.to_excel(ruta_salida_excel, index=False)
+    # Guardar Excel
+    df.to_excel(archivo_salida, index=False)
